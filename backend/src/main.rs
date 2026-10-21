@@ -334,16 +334,28 @@ async fn proxy_movie(
     })
 }
 
+
 #[tokio::main]
 async fn main() {
     let service = MovieBoxService::new();
 
+    // Local development aur deployed Netlify frontend dono ko allow karo.
+    let mut allowed_origins = vec![
+        HeaderValue::from_static("http://localhost:5173"),
+    ];
+
+    if let Ok(frontend_url) = std::env::var("FRONTEND_URL") {
+        match frontend_url.parse::<HeaderValue>() {
+            Ok(origin) => allowed_origins.push(origin),
+            Err(_) => {
+                eprintln!("Invalid FRONTEND_URL environment variable");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let cors = CorsLayer::new()
-        .allow_origin(
-            "http://localhost:5173"
-                .parse::<HeaderValue>()
-                .expect("valid frontend origin"),
-        )
+        .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([
             header::CONTENT_TYPE,
@@ -361,13 +373,19 @@ async fn main() {
         .with_state(service)
         .layer(cors);
 
-    let address = SocketAddr::from(([127, 0, 0, 1], 3000));
+    // Render provides PORT automatically.
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .expect("Invalid PORT environment variable");
+
+    let address = SocketAddr::from(([0, 0, 0, 0], port));
 
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("failed to bind backend port");
 
-    println!("MovieBox Web API: http://127.0.0.1:3000");
+    println!("MovieBox Web API listening on {address}");
 
     axum::serve(listener, app)
         .await
